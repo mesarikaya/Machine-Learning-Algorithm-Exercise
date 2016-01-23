@@ -1,0 +1,90 @@
+---
+title: "MAchine LEArning"
+output: html_document
+---
+
+
+First download the data dn examine the general characteristics of the dat wit str function.
+
+The results reveal that there are a lot of columns that do not hold information. These columns will be eliminated from the data set.
+
+```{r,cache=FALSE}
+library(caret)
+library(randomForest)
+library(AppliedPredictiveModeling)
+library(gbm)
+library(rpart)
+library(rattle)
+library(rpart.plot)
+set.seed(100)
+trainingdata<-read.csv("C:/Users/MustafaErgin/Desktop/R Studies/Machine Learning/pml-training.csv",na.strings = c("NA", "#DIV/0!", ""))
+testingdata<-read.csv("C:/Users/MustafaErgin/Desktop/R Studies/Machine Learning/pml-testing.csv",na.strings = c("NA", "#DIV/0!", ""))
+str(trainingdata)
+anydata  <- apply(!is.na(trainingdata), 2, sum) > 19621  # which is the number of observations
+trainingdata <- trainingdata[, anydata]
+testingdata  <- testingdata[, anydata]
+
+```
+*** Method 1: Split the training data into training and testing (for validation purposes)
+
+The rule of thumb 60:40 split is used to divide the trainingdata into another training and validation data sets.
+
+First boosting is tried. However the relative influence table did only reveal 2 variables as the key variables. As a result and rpart model is being created to see if actually this looks healthy.
+
+```{r, echo=FALSE, cache=TRUE}
+  intrain<-createDataPartition(y=trainingdata$classe,p=0.6,list=FALSE)
+  training<-trainingdata[intrain,]
+  testing<-trainingdata[-intrain,]
+  fit<- gbm(classe ~ ., data=training, n.trees=1000, verbose=FALSE)
+  relative.influence(fit,scale=TRUE,sort=TRUE)
+  fit2<- train(classe ~ X+cvtd_timestamp, method="rpart",data=training)
+  fancyRpartPlot(fit2$finalModel)
+  fit<-randomForest(classe~.,method="rf",data=training,importance=TRUE,keep.forest=FALSE,ntree=200)
+  importance(fit)
+```
+As the diagram shows that there is still a very much random choice selection in the the purple tree and that accounts for a big portion of possibilities. Hence it is decided to try a different algotrithm and the random forest is chosen.
+
+```{r, echo=FALSE, cache=FALSE}
+  fit<-randomForest(classe~.,method="rf",data=training,importance=TRUE,keep.forest=FALSE,ntree=200)
+  varImpPlot(fit)
+```
+It takes a considerable amount of time(around 15 min) to be able to run the random forest with all variables
+As a result, it is decided to limit the variables to get the answer. As  a result of the variable importance graphs, 7 variables are selected to be the representing variables since they seem to be enough to explain much more than the remaining variables. (around 95 impact)
+
+These vaiables are: "X, raw_timestamp_part_1, cvtd_timestamp, roll_belt,yaw_belt,num_window ,pitch_belt""
+
+As a result now it is decided to continue with random forest and used a k=2. That resulted in a 2 minutes runtime.
+
+```{r, echo=FALSE, cache=FALSE}
+  fit<-train(classe~raw_timestamp_part_1+cvtd_timestamp+roll_belt+yaw_belt+num_window+pitch_belt+pitch_forearm+magnet_dumbbell_y+magnet_dumbbell_z+magnet_belt_y,method="rf",data=training,trControl=trainControl(method="cv",number=2),allowParallel=TRUE)
+   pred1 <- predict(fit, newdata=testing)
+   confMat1 <- confusionMatrix(pred1, testing$classe)
+   confMat1
+```
+
+
+
+As it can be seen the results again shows a 99.9% accuracy on the actual test data.
+
+The results show a 99.7% Accuracy which is much more than needed. Now we can also try to test the model in our real test data and see how good it works.
+
+To understand the actual percentage of times the model predicted correct, the code provided from the lecture is used.
+
+As it can be seen error rate is very small and close to 0.
+
+```{r, echo=FALSE, cache=FALSE}
+predictions <- predict(fit, newdata=testingdata)
+testingdata$classe <- predictions
+submit <- data.frame(problem_id = testingdata$problem_id, classe = predictions)
+write.csv(submit, file = "coursera-submission.csv", row.names = FALSE)
+answers = testingdata$classe
+write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_",i,".txt")
+    write.table(x[i], file=filename, quote=FALSE, row.names=FALSE, col.names=FALSE)
+  }
+}
+write_files(answers)
+```
+
